@@ -11,9 +11,28 @@ export function NewClientModal({ onClose, onSave }) {
     tag: "Nova",
   });
 
-  function handleSave() {
-    if (!form.name.trim()) return;
-    onSave(form);
+  const [localError, setLocalError] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+
+  async function handleSave() {
+    setLocalError("");
+
+    if (!form.name.trim()) {
+      setLocalError("Informe o nome do cliente.");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      await onSave(form);
+    } catch (error) {
+      setLocalError(
+        error instanceof Error ? error.message : "Erro ao salvar cliente."
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -47,11 +66,19 @@ export function NewClientModal({ onClose, onSave }) {
           </Select>
         </Field>
 
+        {localError ? (
+          <div className="rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+            {localError}
+          </div>
+        ) : null}
+
         <button
+          type="button"
           onClick={handleSave}
-          className="w-full rounded-2xl bg-[#0F3D3E] text-white py-3.5 text-sm font-semibold"
+          disabled={loading}
+          className="w-full rounded-2xl bg-[#0F3D3E] text-white py-3.5 text-sm font-semibold disabled:opacity-60"
         >
-          Salvar cliente
+          {loading ? "Salvando..." : "Salvar cliente"}
         </button>
       </div>
     </Modal>

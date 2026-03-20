@@ -1,9 +1,11 @@
-import React from "react";
+import  React  from "react";
+import { supabase } from "./lib/supabase";
 import { PulsoMark } from "./components/brand/PulsoMark";
 import { RepositoryStatus } from "./components/ui/RepositoryStatus";
 
 import { usePulsoDatabase } from "./hooks/usePulsoDatabase";
 
+import { SignUpScreen } from "./screens/SignUpScreen";
 import { OnboardingScreen } from "./screens/OnboardingScreen";
 import { LoginScreen } from "./screens/LoginScreen";
 import { DashboardScreen } from "./screens/DashboardScreen";
@@ -27,99 +29,368 @@ function SanityChecks({ db }) {
 export default function App() {
   const [currentScreen, setCurrentScreen] = React.useState("Onboarding");
   const [modal, setModal] = React.useState(null);
+  const [authError, setAuthError] = React.useState("");
+  const [authSuccess, setAuthSuccess] = React.useState("");
+  const [appError, setAppError] = React.useState("");
+  const [actionLoading, setActionLoading] = React.useState(false);
 
   const { db, isReady, syncMessage, repository, persist, resetDemo } =
     usePulsoDatabase();
+
+  React.useEffect(() => {
+    let mounted = true;
+
+    async function bootstrapAuth() {
+      const { data, error } = await supabase.auth.getSession();
+
+      if (!mounted) return;
+
+      if (error) {
+        setCurrentScreen("Onboarding");
+        return;
+      }
+
+      if (data.session) {
+        setCurrentScreen("Dashboard");
+      } else {
+        setCurrentScreen("Onboarding");
+      }
+    }
+
+    bootstrapAuth();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
+
+      if (event === "SIGNED_IN" && session) {
+        setCurrentScreen("Dashboard");
+        setAuthError("");
+        setAuthSuccess("");
+        setAppError("");
+      }
+
+      if (event === "SIGNED_OUT") {
+        setCurrentScreen("Onboarding");
+        setAuthError("");
+        setAuthSuccess("");
+        setAppError("");
+        setModal(null);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   function updateDb(updater) {
     const next = typeof updater === "function" ? updater(db) : updater;
     persist(next);
   }
 
+  async function handleLogout() {
+    setAppError("");
+    await supabase.auth.signOut();
+  }
+
   function openActionModal(action) {
-    if (action === "new-client") setModal("client");
-    if (action === "new-appointment") setModal("appointment");
-    if (action === "new-sale") setModal("sale");
+    setAppError("");
+
+    if (action === "new-client") {
+      setModal("client");
+      return;
+    }
+
+    if (action === "new-appointment") {
+      setModal("appointment");
+      return;
+    }
+
+    if (action === "new-sale") {
+      setModal("sale");
+    }
   }
 
-  function createClient(form) {
-    updateDb((current) => ({
-      ...current,
-      clients: [
-        {
-          id: Date.now(),
-          name: form.name,
-          phone: form.phone,
-          tag: form.tag,
-          lastVisit: "ainda não atendido",
-          spent: 0,
-        },
-        ...current.clients,
-      ],
-    }));
+  async function getOrCreateBusinessId() {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
 
-    setModal(null);
-    setCurrentScreen("Clientes");
+    if (userError || !user) {
+      throw new Error("Usuário não autenticado no Supabase.");
+    }
+
+    const fullName =
+      user.user_metadata?.full_name ||
+      user.email?.split("@")[0] ||
+      "Usuário";
+
+    const businessName =
+      user.user_metadata?.business_name ||
+      "Meu Negócio";
+
+    const slugBase = businessName
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "");
+
+    const { error: profileError } = await supabase.from("profiles").upsert({
+      id: user.id,
+      full_name: fullName,
+      phone: null,
+    });
+
+    if (profileError) {
+      throw new Error(`Erro ao criar/atualizar perfil: ${profileError.message}`);
+    }
+
+    const { data: existingBusiness, error: readBusinessError } = await supabase
+      .from("businesses")
+      .select("id")
+      .eq("owner_user_id", user.id)
+      .limit(1);
+
+    if (readBusinessError) {
+      throw new Error(`Erro ao buscar negócio: ${readBusinessError.message}`);
+    }
+
+    const businessId = existingBusiness?.[0]?.id;
+    if (businessId) {
+      return businessId;
+    }
+
+    const { data: newBusiness, error: createBusinessError } = await supabase
+      .from("businesses")
+      .insert({
+        owner_user_id: user.id,
+        name: businessName,
+        slug: `${slugBase || "negocio"}-${user.id.slice(0, 8)}`,
+      })
+      .select("id")
+      .single();
+
+    if (createBusinessError) {
+      throw new Error(`Erro ao criar negócio: ${createBusinessError.message}`);
+    }
+
+    return newBusiness.id;
   }
 
-  function createAppointment(form) {
-    const client = db.clients.find(
-      (item) => String(item.id) === String(form.clientId)
-    );
-
-    updateDb((current) => ({
-      ...current,
-      appointments: [
-        {
-          id: Date.now(),
-          clientId: Number(form.clientId),
-          name: client?.name || "Cliente",
-          service: form.service,
-          time: form.time,
-          value: Number(form.value || 0),
-          status: form.status,
-        },
-        ...current.appointments,
-      ],
-    }));
-
-    setModal(null);
-    setCurrentScreen("Agenda");
+  async function ensureAccountSetup() {
+    await getOrCreateBusinessId();
   }
 
-  function createSale(form) {
-    const client = db.clients.find(
-      (item) => String(item.id) === String(form.clientId)
-    );
+  async function handleSupabaseLogin(email, password) {
+    setAuthError("");
+    setAuthSuccess("");
 
-    updateDb((current) => ({
-      ...current,
-      sales: [
-        {
-          id: Date.now(),
-          clientId: Number(form.clientId),
-          client: client?.name || "Cliente",
-          item: form.item,
-          method: form.method,
-          amount: Number(form.amount || 0),
-          time: form.time,
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      setAuthError(error.message);
+      throw error;
+    }
+
+    await ensureAccountSetup();
+  }
+
+  async function handleSupabaseSignUp(form) {
+    setAuthError("");
+    setAuthSuccess("");
+
+    const { data, error } = await supabase.auth.signUp({
+      email: form.email,
+      password: form.password,
+      options: {
+        data: {
+          full_name: form.fullName,
+          business_name: form.businessName,
         },
-        ...current.sales,
-      ],
-      clients: current.clients.map((item) => {
-        if (String(item.id) !== String(form.clientId)) return item;
+      },
+    });
 
-        return {
-          ...item,
-          spent: Number(item.spent || 0) + Number(form.amount || 0),
-          lastVisit: "hoje",
-          tag: item.tag === "Nova" ? "Recorrente" : item.tag,
-        };
-      }),
-    }));
+    if (error) {
+      setAuthError(error.message);
+      throw error;
+    }
 
-    setModal(null);
-    setCurrentScreen("Vendas");
+    const hasSession = Boolean(data.session);
+    const userId = data.user?.id;
+
+    if (!userId) {
+      setAuthError("Não foi possível criar o usuário.");
+      return;
+    }
+
+    if (!hasSession) {
+      setAuthSuccess(
+        "Conta criada. Confira seu email para confirmar o cadastro e depois entre no app."
+      );
+      setCurrentScreen("Login");
+      return;
+    }
+
+    await ensureAccountSetup();
+    setAuthSuccess("Conta criada com sucesso.");
+    setCurrentScreen("Dashboard");
+  }
+
+  async function createClient(form) {
+    setAppError("");
+    setActionLoading(true);
+
+    try {
+      if (repository.mode === "supabase") {
+        const businessId = await getOrCreateBusinessId();
+        await repository.createClient(businessId, form);
+        const fresh = await repository.load();
+        await persist(fresh);
+        setModal(null);
+        setCurrentScreen("Clientes");
+        return true;
+      }
+
+      updateDb((current) => ({
+        ...current,
+        clients: [
+          {
+            id: Date.now(),
+            name: form.name,
+            phone: form.phone,
+            tag: form.tag,
+            lastVisit: "ainda não atendido",
+            spent: 0,
+          },
+          ...current.clients,
+        ],
+      }));
+
+      setModal(null);
+      setCurrentScreen("Clientes");
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao criar cliente.";
+      setAppError(message);
+      throw new Error(message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function createAppointment(form) {
+    setAppError("");
+    setActionLoading(true);
+
+    try {
+      if (repository.mode === "supabase") {
+        const businessId = await getOrCreateBusinessId();
+        await repository.createAppointment(businessId, form);
+        const fresh = await repository.load();
+        await persist(fresh);
+        setModal(null);
+        setCurrentScreen("Agenda");
+        return true;
+      }
+
+      const client = db.clients.find(
+        (item) => String(item.id) === String(form.clientId)
+      );
+
+      updateDb((current) => ({
+        ...current,
+        appointments: [
+          {
+            id: Date.now(),
+            clientId: Number(form.clientId),
+            name: client?.name || "Cliente",
+            service: form.service,
+            time: form.time,
+            value: Number(form.value || 0),
+            status: form.status,
+          },
+          ...current.appointments,
+        ],
+      }));
+
+      setModal(null);
+      setCurrentScreen("Agenda");
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao criar agendamento.";
+      setAppError(message);
+      throw new Error(message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function createSale(form) {
+    setAppError("");
+    setActionLoading(true);
+
+    try {
+      if (repository.mode === "supabase") {
+        const businessId = await getOrCreateBusinessId();
+        await repository.createSale(businessId, form);
+        const fresh = await repository.load();
+        await persist(fresh);
+        setModal(null);
+        setCurrentScreen("Vendas");
+        return true;
+      }
+
+      const client = db.clients.find(
+        (item) => String(item.id) === String(form.clientId)
+      );
+
+      updateDb((current) => ({
+        ...current,
+        sales: [
+          {
+            id: Date.now(),
+            clientId: Number(form.clientId),
+            client: client?.name || "Cliente",
+            item: form.item,
+            method: form.method,
+            amount: Number(form.amount || 0),
+            time: form.time,
+          },
+          ...current.sales,
+        ],
+        clients: current.clients.map((item) => {
+          if (String(item.id) !== String(form.clientId)) return item;
+
+          return {
+            ...item,
+            spent: Number(item.spent || 0) + Number(form.amount || 0),
+            lastVisit: "hoje",
+            tag: item.tag === "Nova" ? "Recorrente" : item.tag,
+          };
+        }),
+      }));
+
+      setModal(null);
+      setCurrentScreen("Vendas");
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao criar venda.";
+      setAppError(message);
+      throw new Error(message);
+    } finally {
+      setActionLoading(false);
+    }
   }
 
   function renderCurrentScreen() {
@@ -128,13 +399,29 @@ export default function App() {
         <OnboardingScreen
           onSkip={() => setCurrentScreen("Login")}
           onLogin={() => setCurrentScreen("Login")}
-          onCreateAccount={() => setCurrentScreen("Login")}
+          onCreateAccount={() => setCurrentScreen("SignUp")}
+        />
+      );
+    }
+
+    if (currentScreen === "SignUp") {
+      return (
+        <SignUpScreen
+          onCreateAccount={handleSupabaseSignUp}
+          authError={authError}
+          authSuccess={authSuccess}
+          onGoToLogin={() => setCurrentScreen("Login")}
         />
       );
     }
 
     if (currentScreen === "Login") {
-      return <LoginScreen onEnter={() => setCurrentScreen("Dashboard")} />;
+      return (
+        <LoginScreen
+          onEnter={handleSupabaseLogin}
+          authError={authError}
+        />
+      );
     }
 
     if (currentScreen === "Clientes") {
@@ -176,6 +463,12 @@ export default function App() {
     );
   }
 
+  const isAuthenticatedArea =
+    currentScreen === "Dashboard" ||
+    currentScreen === "Clientes" ||
+    currentScreen === "Agenda" ||
+    currentScreen === "Vendas";
+
   if (!isReady) {
     return (
       <div className="min-h-screen bg-[#F4EFE8] p-6 flex items-center justify-center">
@@ -187,7 +480,7 @@ export default function App() {
             Inicializando PULSO
           </h2>
           <p className="text-sm text-[#1E1E1E]/60 mt-2">
-            Preparando a base local do projeto.
+            Preparando a base do projeto.
           </p>
         </div>
       </div>
@@ -199,11 +492,36 @@ export default function App() {
       <SanityChecks db={db} />
 
       <div className="max-w-6xl mx-auto">
-        <RepositoryStatus
-          repository={repository}
-          syncMessage={syncMessage}
-          onReset={resetDemo}
-        />
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div className="flex-1">
+            <RepositoryStatus
+              repository={repository}
+              syncMessage={syncMessage}
+              onReset={resetDemo}
+            />
+          </div>
+
+          {isAuthenticatedArea ? (
+            <button
+              onClick={handleLogout}
+              className="rounded-2xl bg-white border border-[#0F3D3E]/10 px-4 py-3 text-sm font-semibold text-[#0F3D3E] shadow-sm"
+            >
+              Deslogar
+            </button>
+          ) : null}
+        </div>
+
+        {appError ? (
+          <div className="mb-4 rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+            {appError}
+          </div>
+        ) : null}
+
+        {actionLoading ? (
+          <div className="mb-4 rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-700">
+            Processando ação...
+          </div>
+        ) : null}
 
         <div className="mb-6 text-center">
           <p className="text-xs uppercase tracking-[0.22em] text-[#0F3D3E]/55">
@@ -213,8 +531,7 @@ export default function App() {
             PULSO
           </h1>
           <p className="text-sm text-[#1E1E1E]/60 mt-2">
-            Base limpa, sem dados fictícios, preparada para continuar no VS Code
-            e depois subir para o GitHub.
+            Base limpa, preparada para seguir no VS Code e depois subir para o GitHub.
           </p>
         </div>
 

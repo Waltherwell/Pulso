@@ -18,7 +18,7 @@ function ScreenHeader({ title, onCreate }) {
       </div>
 
       <button
-        onClick={onCreate}
+        onClick={onCreateClient}
         className="w-11 h-11 rounded-2xl bg-[#0F3D3E] text-white text-xl leading-none shadow-md"
       >
         +

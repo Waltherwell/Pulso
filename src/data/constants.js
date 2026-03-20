@@ -1,4 +1,4 @@
-export const DATA_SOURCE = "local";
+export const DATA_SOURCE = "supabase";
 export const DB_KEY = "pulso_db_v3";
 
 export const onboardingSteps = [
