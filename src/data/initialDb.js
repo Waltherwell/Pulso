@@ -5,8 +5,9 @@ export function createInitialDb() {
     sales: [],
     user: {
       name: "Usuário",
-      businessName: "Meu Negócio",
       email: "",
+      phone: "",
+      businessName: "Meu Negócio",
     },
   };
 }

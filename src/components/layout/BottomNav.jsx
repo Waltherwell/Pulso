@@ -12,6 +12,7 @@ export function BottomNav({ active, onNavigate }) {
           return (
             <button
               key={item}
+              type="button"
               onClick={() => onNavigate(item)}
               className={cx(
                 "rounded-2xl px-2 py-3 text-[11px] font-medium transition",

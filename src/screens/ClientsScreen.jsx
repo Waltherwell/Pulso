@@ -18,7 +18,8 @@ function ScreenHeader({ title, onCreate }) {
       </div>
 
       <button
-        onClick={onCreateClient}
+        type="button"
+        onClick={onCreate}
         className="w-11 h-11 rounded-2xl bg-[#0F3D3E] text-white text-xl leading-none shadow-md"
       >
         +
@@ -27,19 +28,50 @@ function ScreenHeader({ title, onCreate }) {
   );
 }
 
-export function ClientsScreen({ db, onNavigate, onCreateClient }) {
+function normalizeClient(client, index) {
+  return {
+    id: client?.id ?? `client-${index}`,
+    name: String(client?.name || "Cliente sem nome"),
+    phone: String(client?.phone || ""),
+    tag: String(client?.tag || "Nova"),
+    lastVisit: String(client?.lastVisit || "sem histórico"),
+    spent: Number(client?.spent || 0),
+  };
+}
+
+export function ClientsScreen({
+  db,
+  onNavigate,
+  onCreateClient,
+  onDeleteClient,
+  onEditClient,
+}) {
   const [filter, setFilter] = React.useState("Todos");
   const [query, setQuery] = React.useState("");
 
-  const filteredClients = db.clients.filter((client) => {
-    const matchesFilter = filter === "Todos" ? true : client.tag === filter;
-    const phone = String(client.phone || "");
-    const matchesQuery =
-      client.name.toLowerCase().includes(query.toLowerCase()) ||
-      phone.includes(query);
+  const safeClients = Array.isArray(db?.clients)
+    ? db.clients.map((client, index) => normalizeClient(client, index))
+    : [];
 
-    return matchesFilter && matchesQuery;
+  const filteredClients = safeClients.filter((client) => {
+    const matchesFilter = filter === "Todos" ? true : client.tag === filter;
+    const search = query.toLowerCase();
+
+    return (
+      matchesFilter &&
+      (client.name.toLowerCase().includes(search) ||
+        client.phone.toLowerCase().includes(search))
+    );
   });
+
+  function handleDelete(clientId, clientName) {
+    const confirmed = window.confirm(
+      `Deseja deletar ${clientName}?\nEssa ação também remove os agendamentos vinculados.`
+    );
+
+    if (!confirmed) return;
+    onDeleteClient(clientId);
+  }
 
   return (
     <PhoneShell activeTab="Clientes" showNav={true} onNavigate={onNavigate}>
@@ -75,21 +107,21 @@ export function ClientsScreen({ db, onNavigate, onCreateClient }) {
           <div className="grid grid-cols-3 gap-3 mt-4 text-center">
             <div>
               <p className="text-xl font-semibold text-[#1E1E1E]">
-                {db.clients.length}
+                {safeClients.length}
               </p>
               <p className="text-[11px] text-[#1E1E1E]/55 mt-1">Total</p>
             </div>
 
             <div>
               <p className="text-xl font-semibold text-[#1E1E1E]">
-                {db.clients.filter((item) => item.tag === "Recorrente").length}
+                {safeClients.filter((item) => item.tag === "Recorrente").length}
               </p>
               <p className="text-[11px] text-[#1E1E1E]/55 mt-1">Recorrentes</p>
             </div>
 
             <div>
               <p className="text-xl font-semibold text-[#1E1E1E]">
-                {db.clients.filter((item) => item.tag === "Inativa").length}
+                {safeClients.filter((item) => item.tag === "Inativa").length}
               </p>
               <p className="text-[11px] text-[#1E1E1E]/55 mt-1">Inativos</p>
             </div>
@@ -98,9 +130,9 @@ export function ClientsScreen({ db, onNavigate, onCreateClient }) {
 
         {filteredClients.length === 0 ? (
           <EmptyState
-            title="Nenhum cliente cadastrado"
-            description="Cadastre seu primeiro cliente para começar a montar seu relacionamento e histórico de atendimento."
-            actionLabel="Cadastrar cliente"
+            title="Sua base de clientes ainda está vazia"
+            description="Adicione seu primeiro contato para começar a construir histórico, relacionamento e recorrência."
+            actionLabel="Adicionar cliente"
             onAction={onCreateClient}
           />
         ) : (
@@ -129,14 +161,14 @@ export function ClientsScreen({ db, onNavigate, onCreateClient }) {
                   <span
                     className={cx(
                       "text-[11px] px-2.5 py-1 rounded-full font-medium",
-                      tagStyles[client.tag]
+                      tagStyles[client.tag] || "bg-[#F4EFE8] text-[#0F3D3E]"
                     )}
                   >
                     {client.tag}
                   </span>
                 </div>
 
-                <div className="mt-4 flex items-center justify-between rounded-2xl bg-[#F4EFE8] px-4 py-3">
+                <div className="mt-4 flex items-center justify-between rounded-2xl bg-[#F4EFE8] px-4 py-3 gap-3">
                   <div>
                     <p className="text-[11px] uppercase tracking-[0.14em] text-[#1E1E1E]/45">
                       Valor gerado
@@ -146,9 +178,30 @@ export function ClientsScreen({ db, onNavigate, onCreateClient }) {
                     </p>
                   </div>
 
-                  <button className="text-xs font-medium text-[#0F3D3E]">
-                    {client.phone || "Sem telefone"}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-[#0F3D3E]"
+                    >
+                      {client.phone || "Sem telefone"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onEditClient(client)}
+                      className="rounded-xl border border-[#0F3D3E]/10 px-3 py-2 text-xs font-semibold text-[#0F3D3E] bg-white"
+                    >
+                      Editar
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(client.id, client.name)}
+                      className="rounded-xl border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 bg-white"
+                    >
+                      Deletar
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

@@ -1,4 +1,6 @@
-import  React  from "react";
+import { EditClientModal } from "./modals/EditClientModal";
+import { EditAppointmentModal } from "./modals/EditAppointmentModal";
+import React from "react";
 import { supabase } from "./lib/supabase";
 import { PulsoMark } from "./components/brand/PulsoMark";
 import { RepositoryStatus } from "./components/ui/RepositoryStatus";
@@ -16,12 +18,13 @@ import { SalesScreen } from "./screens/SalesScreen";
 import { NewClientModal } from "./modals/NewClientModal";
 import { NewAppointmentModal } from "./modals/NewAppointmentModal";
 import { NewSaleModal } from "./modals/NewSaleModal";
+import { EditProfileModal } from "./modals/EditProfileModal";
 
-function SanityChecks({ db }) {
+function FSanityChecks({ db }) {
   const allGood =
-    Array.isArray(db.clients) &&
-    Array.isArray(db.appointments) &&
-    Array.isArray(db.sales);
+    Array.isArray(db?.clients) &&
+    Array.isArray(db?.appointments) &&
+    Array.isArray(db?.sales);
 
   return <div className="hidden" data-sanity={allGood ? "ok" : "fail"} />;
 }
@@ -29,6 +32,10 @@ function SanityChecks({ db }) {
 export default function App() {
   const [currentScreen, setCurrentScreen] = React.useState("Onboarding");
   const [modal, setModal] = React.useState(null);
+
+  const [selectedClient, setSelectedClient] = React.useState(null);
+  const [selectedAppointment, setSelectedAppointment] = React.useState(null);
+
   const [authError, setAuthError] = React.useState("");
   const [authSuccess, setAuthSuccess] = React.useState("");
   const [appError, setAppError] = React.useState("");
@@ -36,6 +43,15 @@ export default function App() {
 
   const { db, isReady, syncMessage, repository, persist, resetDemo } =
     usePulsoDatabase();
+
+  function SanityChecks({ db }) {
+    const allGood =
+      Array.isArray(db?.clients) &&
+      Array.isArray(db?.appointments) &&
+      Array.isArray(db?.sales);
+
+    return <div className="hidden" data-sanity={allGood ? "ok" : "fail"} />;
+  }
 
   React.useEffect(() => {
     let mounted = true;
@@ -92,6 +108,9 @@ export default function App() {
   }
 
   async function handleLogout() {
+    const confirmed = window.confirm("Deseja deslogar da PULSO?");
+    if (!confirmed) return;
+
     setAppError("");
     await supabase.auth.signOut();
   }
@@ -111,6 +130,11 @@ export default function App() {
 
     if (action === "new-sale") {
       setModal("sale");
+      return;
+    }
+
+    if (action === "edit-profile") {
+      setModal("profile");
     }
   }
 
@@ -182,6 +206,135 @@ export default function App() {
     return newBusiness.id;
   }
 
+  function openEditClient(client) {
+    setAppError("");
+    setSelectedClient(client);
+    setModal("edit-client");
+  }
+
+  function openEditAppointment(appointment) {
+    setAppError("");
+    setSelectedAppointment(appointment);
+    setModal("edit-appointment");
+  }
+
+  async function updateClient(form) {
+    setAppError("");
+    setActionLoading(true);
+
+    try {
+      if (repository.mode === "supabase") {
+        await repository.updateClient(selectedClient.id, form);
+        const fresh = await repository.load();
+        await persist(fresh);
+        setModal(null);
+        setSelectedClient(null);
+        return true;
+      }
+
+      updateDb((current) => ({
+        ...current,
+        clients: current.clients.map((item) =>
+          String(item.id) === String(selectedClient.id)
+            ? { ...item, ...form }
+            : item
+        ),
+      }));
+
+      setModal(null);
+      setSelectedClient(null);
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao atualizar cliente.";
+      setAppError(message);
+      throw new Error(message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function updateAppointment(form) {
+    setAppError("");
+    setActionLoading(true);
+
+    try {
+      if (repository.mode === "supabase") {
+        await repository.updateAppointment(selectedAppointment.id, form);
+        const fresh = await repository.load();
+        await persist(fresh);
+        setModal(null);
+        setSelectedAppointment(null);
+        return true;
+      }
+
+      const client = db.clients.find(
+        (item) => String(item.id) === String(form.clientId)
+      );
+
+      updateDb((current) => ({
+        ...current,
+        appointments: current.appointments.map((item) =>
+          String(item.id) === String(selectedAppointment.id)
+            ? {
+              ...item,
+              clientId: form.clientId,
+              name: client?.name || "Cliente",
+              service: form.service,
+              time: form.time,
+              value: Number(form.value || 0),
+              status: form.status,
+            }
+            : item
+        ),
+      }));
+
+      setModal(null);
+      setSelectedAppointment(null);
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao atualizar agendamento.";
+      setAppError(message);
+      throw new Error(message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function deleteAppointment(appointmentId) {
+    const confirmed = window.confirm("Deseja deletar este agendamento?");
+    if (!confirmed) return;
+
+    setAppError("");
+    setActionLoading(true);
+
+    try {
+      if (repository.mode === "supabase") {
+        await repository.deleteAppointment(appointmentId);
+        const fresh = await repository.load();
+        await persist(fresh);
+        return true;
+      }
+
+      updateDb((current) => ({
+        ...current,
+        appointments: current.appointments.filter(
+          (item) => String(item.id) !== String(appointmentId)
+        ),
+      }));
+
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao deletar agendamento.";
+      setAppError(message);
+      throw new Error(message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
   async function ensureAccountSetup() {
     await getOrCreateBusinessId();
   }
@@ -244,6 +397,42 @@ export default function App() {
     setCurrentScreen("Dashboard");
   }
 
+  async function saveProfile(form) {
+    setAppError("");
+    setActionLoading(true);
+
+    try {
+      if (repository.mode === "supabase") {
+        await repository.updateProfile(form);
+        const fresh = await repository.load();
+        await persist(fresh);
+        setModal(null);
+        return true;
+      }
+
+      updateDb((current) => ({
+        ...current,
+        user: {
+          ...current.user,
+          name: form.name,
+          email: form.email,
+          phone: form.phone,
+          businessName: form.businessName,
+        },
+      }));
+
+      setModal(null);
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao atualizar perfil.";
+      setAppError(message);
+      throw new Error(message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
   async function createClient(form) {
     setAppError("");
     setActionLoading(true);
@@ -265,8 +454,8 @@ export default function App() {
           {
             id: Date.now(),
             name: form.name,
-            phone: form.phone,
-            tag: form.tag,
+            phone: form.phone || "",
+            tag: form.tag || "Nova",
             lastVisit: "ainda não atendido",
             spent: 0,
           },
@@ -280,6 +469,40 @@ export default function App() {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Erro ao criar cliente.";
+      setAppError(message);
+      throw new Error(message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function deleteClient(clientId) {
+    setAppError("");
+    setActionLoading(true);
+
+    try {
+      if (repository.mode === "supabase") {
+        await repository.deleteClient(clientId);
+        const fresh = await repository.load();
+        await persist(fresh);
+        return true;
+      }
+
+      updateDb((current) => ({
+        ...current,
+        clients: current.clients.filter((item) => item.id !== clientId),
+        appointments: current.appointments.filter(
+          (item) => String(item.clientId) !== String(clientId)
+        ),
+        sales: current.sales.filter(
+          (item) => String(item.clientId) !== String(clientId)
+        ),
+      }));
+
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao deletar cliente.";
       setAppError(message);
       throw new Error(message);
     } finally {
@@ -311,7 +534,7 @@ export default function App() {
         appointments: [
           {
             id: Date.now(),
-            clientId: Number(form.clientId),
+            clientId: form.clientId,
             name: client?.name || "Cliente",
             service: form.service,
             time: form.time,
@@ -359,7 +582,7 @@ export default function App() {
         sales: [
           {
             id: Date.now(),
-            clientId: Number(form.clientId),
+            clientId: form.clientId,
             client: client?.name || "Cliente",
             item: form.item,
             method: form.method,
@@ -424,12 +647,24 @@ export default function App() {
       );
     }
 
+    if (currentScreen === "Vendas") {
+      return (
+        <SalesScreen
+          db={db}
+          onNavigate={setCurrentScreen}
+          onCreateSale={() => setModal("sale")}
+        />
+      );
+    }
+
     if (currentScreen === "Clientes") {
       return (
         <ClientsScreen
           db={db}
           onNavigate={setCurrentScreen}
           onCreateClient={() => setModal("client")}
+          onDeleteClient={deleteClient}
+          onEditClient={openEditClient}
         />
       );
     }
@@ -440,16 +675,8 @@ export default function App() {
           db={db}
           onNavigate={setCurrentScreen}
           onCreateAppointment={() => setModal("appointment")}
-        />
-      );
-    }
-
-    if (currentScreen === "Vendas") {
-      return (
-        <SalesScreen
-          db={db}
-          onNavigate={setCurrentScreen}
-          onCreateSale={() => setModal("sale")}
+          onEditAppointment={openEditAppointment}
+          onDeleteAppointment={deleteAppointment}
         />
       );
     }
@@ -502,12 +729,21 @@ export default function App() {
           </div>
 
           {isAuthenticatedArea ? (
-            <button
-              onClick={handleLogout}
-              className="rounded-2xl bg-white border border-[#0F3D3E]/10 px-4 py-3 text-sm font-semibold text-[#0F3D3E] shadow-sm"
-            >
-              Deslogar
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setModal("profile")}
+                className="rounded-2xl bg-white border border-[#0F3D3E]/10 px-4 py-3 text-sm font-semibold text-[#0F3D3E] shadow-sm"
+              >
+                Perfil
+              </button>
+
+              <button
+                onClick={handleLogout}
+                className="rounded-2xl bg-white border border-[#0F3D3E]/10 px-4 py-3 text-sm font-semibold text-[#0F3D3E] shadow-sm"
+              >
+                Deslogar
+              </button>
+            </div>
           ) : null}
         </div>
 
@@ -538,8 +774,42 @@ export default function App() {
         {renderCurrentScreen()}
       </div>
 
+      {modal === "edit-client" && selectedClient ? (
+        <EditClientModal
+          client={selectedClient}
+          onClose={() => {
+            setModal(null);
+            setSelectedClient(null);
+          }}
+          onSave={updateClient}
+        />
+      ) : null}
+
+      {modal === "edit-appointment" && selectedAppointment ? (
+        <EditAppointmentModal
+          appointment={selectedAppointment}
+          clients={db.clients}
+          onClose={() => {
+            setModal(null);
+            setSelectedAppointment(null);
+          }}
+          onSave={updateAppointment}
+        />
+      ) : null}
+
+      {modal === "profile" ? (
+        <EditProfileModal
+          user={db.user}
+          onClose={() => setModal(null)}
+          onSave={saveProfile}
+        />
+      ) : null}
+
       {modal === "client" ? (
-        <NewClientModal onClose={() => setModal(null)} onSave={createClient} />
+        <NewClientModal
+          onClose={() => setModal(null)}
+          onSave={createClient}
+        />
       ) : null}
 
       {modal === "appointment" ? (
@@ -557,6 +827,8 @@ export default function App() {
           onSave={createSale}
         />
       ) : null}
+
+
     </div>
   );
 }
