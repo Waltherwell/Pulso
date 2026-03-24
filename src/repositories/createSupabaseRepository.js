@@ -2,19 +2,23 @@ import { supabase } from "../lib/supabase";
 import { createInitialDb } from "../data/initialDb";
 
 function formatTime(value) {
-  const date = value ? new Date(value) : null;
+  if (!value) return "--:--";
 
-  return date
-    ? date.toLocaleTimeString("pt-BR", {
-      hour: "2-digit",
-      minute: "2-digit",
-    })
-    : "--:--";
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "--:--";
+  }
+
+  return date.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function mapClient(row) {
   return {
-    id: row?.id ?? crypto.randomUUID(),
+    id: row?.id ?? `client-${Date.now()}`,
     name: String(row?.name || "Cliente sem nome"),
     phone: String(row?.phone || ""),
     tag: String(row?.tag || "Nova"),
@@ -24,12 +28,21 @@ function mapClient(row) {
 }
 
 function mapAppointment(row, clientsMap) {
+  const scheduledDate = row?.scheduled_start ? new Date(row.scheduled_start) : null;
+  const isValidDate = scheduledDate && !Number.isNaN(scheduledDate.getTime());
+
   return {
     id: row.id,
     clientId: row.client_id,
     name: clientsMap.get(String(row.client_id))?.name || "Cliente",
     service: row.notes || "Serviço",
-    time: formatTime(row.scheduled_start),
+    date: isValidDate ? scheduledDate.toISOString().slice(0, 10) : "",
+    time: isValidDate
+      ? scheduledDate.toLocaleTimeString("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+      : "09:00",
     value: Number(row.price || 0),
     status: row.status || "Pendente",
   };
@@ -60,71 +73,37 @@ async function getCurrentUser() {
   return user;
 }
 
+function buildScheduledStart(dateValue, timeValue) {
+  if (!dateValue) {
+    throw new Error("Informe a data do agendamento.");
+  }
+
+  const [year, month, day] = String(dateValue).split("-").map(Number);
+  const [hours, minutes] = String(timeValue || "09:00").split(":").map(Number);
+
+  if (
+    Number.isNaN(year) ||
+    Number.isNaN(month) ||
+    Number.isNaN(day) ||
+    Number.isNaN(hours) ||
+    Number.isNaN(minutes)
+  ) {
+    throw new Error("Data ou hora do agendamento inválida.");
+  }
+
+  const scheduledStart = new Date(year, month - 1, day, hours, minutes, 0, 0);
+
+  if (Number.isNaN(scheduledStart.getTime())) {
+    throw new Error("Não foi possível montar a data do agendamento.");
+  }
+
+  return scheduledStart.toISOString();
+}
+
 export function createSupabaseRepository() {
   return {
     name: "Supabase",
     mode: "supabase",
-
-    async updateClient(clientId, form) {
-      const payload = {
-        name: form.name,
-        phone: form.phone || null,
-        tag: form.tag || "Nova",
-      };
-
-      const { data, error } = await supabase
-        .from("clients")
-        .update(payload)
-        .eq("id", clientId)
-        .select("*")
-        .single();
-
-      if (error) {
-        throw new Error(`Erro ao atualizar cliente: ${error.message}`);
-      }
-
-      return mapClient(data);
-    },
-
-    async updateAppointment(appointmentId, form) {
-      const now = new Date();
-      const [hours, minutes] = String(form.time || "09:00").split(":");
-      now.setHours(Number(hours), Number(minutes), 0, 0);
-
-      const payload = {
-        client_id: form.clientId,
-        scheduled_start: now.toISOString(),
-        status: form.status || "Pendente",
-        price: Number(form.value || 0),
-        notes: form.service || null,
-      };
-
-      const { data, error } = await supabase
-        .from("appointments")
-        .update(payload)
-        .eq("id", appointmentId)
-        .select("*")
-        .single();
-
-      if (error) {
-        throw new Error(`Erro ao atualizar agendamento: ${error.message}`);
-      }
-
-      return data;
-    },
-
-    async deleteAppointment(appointmentId) {
-      const { error } = await supabase
-        .from("appointments")
-        .delete()
-        .eq("id", appointmentId);
-
-      if (error) {
-        throw new Error(`Erro ao deletar agendamento: ${error.message}`);
-      }
-
-      return true;
-    },
 
     async load() {
       const user = await getCurrentUser();
@@ -247,6 +226,27 @@ export function createSupabaseRepository() {
       return mapClient(data);
     },
 
+    async updateClient(clientId, form) {
+      const payload = {
+        name: form.name,
+        phone: form.phone || null,
+        tag: form.tag || "Nova",
+      };
+
+      const { data, error } = await supabase
+        .from("clients")
+        .update(payload)
+        .eq("id", clientId)
+        .select("*")
+        .single();
+
+      if (error) {
+        throw new Error(`Erro ao atualizar cliente: ${error.message}`);
+      }
+
+      return mapClient(data);
+    },
+
     async deleteClient(clientId) {
       const { error: appointmentsError } = await supabase
         .from("appointments")
@@ -272,14 +272,10 @@ export function createSupabaseRepository() {
     },
 
     async createAppointment(businessId, form) {
-      const now = new Date();
-      const [hours, minutes] = String(form.time || "09:00").split(":");
-      now.setHours(Number(hours), Number(minutes), 0, 0);
-
       const payload = {
         business_id: businessId,
         client_id: form.clientId,
-        scheduled_start: now.toISOString(),
+        scheduled_start: buildScheduledStart(form.date, form.time),
         status: form.status || "Pendente",
         price: Number(form.value || 0),
         notes: form.service || null,
@@ -296,6 +292,42 @@ export function createSupabaseRepository() {
       }
 
       return data;
+    },
+
+    async updateAppointment(appointmentId, form) {
+      const payload = {
+        client_id: form.clientId,
+        scheduled_start: buildScheduledStart(form.date, form.time),
+        status: form.status || "Pendente",
+        price: Number(form.value || 0),
+        notes: form.service || null,
+      };
+
+      const { data, error } = await supabase
+        .from("appointments")
+        .update(payload)
+        .eq("id", appointmentId)
+        .select("*")
+        .single();
+
+      if (error) {
+        throw new Error(`Erro ao atualizar agendamento: ${error.message}`);
+      }
+
+      return data;
+    },
+
+    async deleteAppointment(appointmentId) {
+      const { error } = await supabase
+        .from("appointments")
+        .delete()
+        .eq("id", appointmentId);
+
+      if (error) {
+        throw new Error(`Erro ao deletar agendamento: ${error.message}`);
+      }
+
+      return true;
     },
 
     async createSale(businessId, form) {
@@ -318,6 +350,19 @@ export function createSupabaseRepository() {
       }
 
       return data;
+    },
+
+    async deleteSale(saleId) {
+      const { error } = await supabase
+        .from("sales")
+        .delete()
+        .eq("id", saleId);
+
+      if (error) {
+        throw new Error(`Erro ao deletar venda: ${error.message}`);
+      }
+
+      return true;
     },
 
     async updateProfile(form) {

@@ -15,6 +15,7 @@ function ScreenHeader({ title, onCreate }) {
       </div>
 
       <button
+        type="button"
         onClick={onCreate}
         className="w-11 h-11 rounded-2xl bg-[#0F3D3E] text-white text-xl leading-none shadow-md"
       >
@@ -24,15 +25,17 @@ function ScreenHeader({ title, onCreate }) {
   );
 }
 
-export function SalesScreen({ db, onNavigate, onCreateSale }) {
+export function SalesScreen({ db, onNavigate, onCreateSale, onDeleteSale }) {
   const [filter, setFilter] = React.useState("Hoje");
+  const sales = Array.isArray(db?.sales) ? db.sales : [];
 
-  const totalSales = db.sales.reduce((sum, sale) => sum + Number(sale.amount || 0), 0);
-  const pixSales = db.sales
+  const totalSales = sales.reduce((sum, sale) => sum + Number(sale.amount || 0), 0);
+
+  const pixSales = sales
     .filter((item) => item.method === "Pix")
     .reduce((sum, sale) => sum + Number(sale.amount || 0), 0);
 
-  const cardSales = db.sales
+  const cardSales = sales
     .filter((item) => item.method === "Cartão")
     .reduce((sum, sale) => sum + Number(sale.amount || 0), 0);
 
@@ -53,14 +56,14 @@ export function SalesScreen({ db, onNavigate, onCreateSale }) {
             </div>
 
             <div>
-              <p className="text-xl font-semibold">{db.sales.length}</p>
+              <p className="text-xl font-semibold">{sales.length}</p>
               <p className="text-[11px] text-white/60 mt-1">Vendas</p>
             </div>
 
             <div>
               <p className="text-xl font-semibold">
-                {db.sales.length
-                  ? formatCurrency(totalSales / db.sales.length)
+                {sales.length
+                  ? formatCurrency(totalSales / sales.length)
                   : formatCurrency(0)}
               </p>
               <p className="text-[11px] text-white/60 mt-1">Ticket médio</p>
@@ -98,7 +101,7 @@ export function SalesScreen({ db, onNavigate, onCreateSale }) {
           </div>
         </div>
 
-        {db.sales.length === 0 ? (
+        {sales.length === 0 ? (
           <EmptyState
             title="Nenhuma venda registrada"
             description="Registre sua primeira venda para acompanhar faturamento, ticket médio e forma de pagamento."
@@ -107,7 +110,7 @@ export function SalesScreen({ db, onNavigate, onCreateSale }) {
           />
         ) : (
           <div className="space-y-3">
-            {db.sales.map((sale) => (
+            {sales.map((sale) => (
               <div
                 key={sale.id}
                 className="rounded-2xl border border-[#0F3D3E]/10 bg-white p-4 shadow-sm"
@@ -117,7 +120,9 @@ export function SalesScreen({ db, onNavigate, onCreateSale }) {
                     <p className="text-sm font-medium text-[#1E1E1E]">
                       {sale.client}
                     </p>
-                    <p className="text-xs text-[#1E1E1E]/60 mt-1">{sale.item}</p>
+                    <p className="text-xs text-[#1E1E1E]/60 mt-1">
+                      {sale.item}
+                    </p>
                   </div>
 
                   <p className="text-sm font-semibold text-[#0F3D3E]">
@@ -125,10 +130,17 @@ export function SalesScreen({ db, onNavigate, onCreateSale }) {
                   </p>
                 </div>
 
-                <div className="mt-4 flex items-center justify-between rounded-2xl bg-[#F4EFE8] px-4 py-3 text-xs">
+                <div className="mt-4 flex items-center justify-between rounded-2xl bg-[#F4EFE8] px-4 py-3 text-xs gap-2">
                   <span className="text-[#1E1E1E]/65">{sale.method}</span>
                   <span className="text-[#1E1E1E]/65">{sale.time}</span>
-                  <button className="font-medium text-[#0F3D3E]">Detalhes</button>
+
+                  <button
+                    type="button"
+                    onClick={() => onDeleteSale(sale.id)}
+                    className="rounded-xl border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 bg-white"
+                  >
+                    Deletar
+                  </button>
                 </div>
               </div>
             ))}

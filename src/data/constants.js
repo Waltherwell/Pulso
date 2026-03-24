@@ -23,9 +23,9 @@ export const onboardingSteps = [
 ];
 
 export const quickActions = [
-  { label: "Cadastrar", icon: "+", action: "new-client" },
-  { label: "Registrar", icon: "R$", action: "new-sale" },
-  { label: "Agendar", icon: "⏰", action: "new-appointment" },
+  { label: "Cliente", icon: "+", action: "new-client" },
+  { label: "Venda", icon: "R$", action: "new-sale" },
+  { label: "Agendamento", icon: "⏰", action: "new-appointment" },
 ];
 
 export const tagStyles = {

@@ -20,15 +20,6 @@ import { NewAppointmentModal } from "./modals/NewAppointmentModal";
 import { NewSaleModal } from "./modals/NewSaleModal";
 import { EditProfileModal } from "./modals/EditProfileModal";
 
-function FSanityChecks({ db }) {
-  const allGood =
-    Array.isArray(db?.clients) &&
-    Array.isArray(db?.appointments) &&
-    Array.isArray(db?.sales);
-
-  return <div className="hidden" data-sanity={allGood ? "ok" : "fail"} />;
-}
-
 export default function App() {
   const [currentScreen, setCurrentScreen] = React.useState("Onboarding");
   const [modal, setModal] = React.useState(null);
@@ -281,6 +272,7 @@ export default function App() {
               clientId: form.clientId,
               name: client?.name || "Cliente",
               service: form.service,
+              date: form.date,
               time: form.time,
               value: Number(form.value || 0),
               status: form.status,
@@ -305,6 +297,8 @@ export default function App() {
   async function deleteAppointment(appointmentId) {
     const confirmed = window.confirm("Deseja deletar este agendamento?");
     if (!confirmed) return;
+
+    if (actionLoading) return;
 
     setAppError("");
     setActionLoading(true);
@@ -357,6 +351,7 @@ export default function App() {
   }
 
   async function handleSupabaseSignUp(form) {
+    if (actionLoading) return;
     setAuthError("");
     setAuthSuccess("");
 
@@ -434,6 +429,7 @@ export default function App() {
   }
 
   async function createClient(form) {
+    if (actionLoading) return;
     setAppError("");
     setActionLoading(true);
 
@@ -476,41 +472,8 @@ export default function App() {
     }
   }
 
-  async function deleteClient(clientId) {
-    setAppError("");
-    setActionLoading(true);
-
-    try {
-      if (repository.mode === "supabase") {
-        await repository.deleteClient(clientId);
-        const fresh = await repository.load();
-        await persist(fresh);
-        return true;
-      }
-
-      updateDb((current) => ({
-        ...current,
-        clients: current.clients.filter((item) => item.id !== clientId),
-        appointments: current.appointments.filter(
-          (item) => String(item.clientId) !== String(clientId)
-        ),
-        sales: current.sales.filter(
-          (item) => String(item.clientId) !== String(clientId)
-        ),
-      }));
-
-      return true;
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Erro ao deletar cliente.";
-      setAppError(message);
-      throw new Error(message);
-    } finally {
-      setActionLoading(false);
-    }
-  }
-
   async function createAppointment(form) {
+    if (actionLoading) return;
     setAppError("");
     setActionLoading(true);
 
@@ -537,6 +500,7 @@ export default function App() {
             clientId: form.clientId,
             name: client?.name || "Cliente",
             service: form.service,
+            date: form.date,
             time: form.time,
             value: Number(form.value || 0),
             status: form.status,
@@ -559,6 +523,8 @@ export default function App() {
   }
 
   async function createSale(form) {
+    if (actionLoading) return;
+
     setAppError("");
     setActionLoading(true);
 
@@ -616,6 +582,117 @@ export default function App() {
     }
   }
 
+  async function deleteClient(clientId) {
+    const confirmed = window.confirm("Deseja deletar este cliente?");
+    if (!confirmed) return;
+
+    if (actionLoading) return;
+
+    setAppError("");
+    setActionLoading(true);
+
+    try {
+      if (repository.mode === "supabase") {
+        await repository.deleteClient(clientId);
+        const fresh = await repository.load();
+        await persist(fresh);
+        return true;
+      }
+
+      updateDb((current) => ({
+        ...current,
+        clients: current.clients.filter(
+          (item) => String(item.id) !== String(clientId)
+        ),
+        appointments: current.appointments.filter(
+          (item) => String(item.clientId) !== String(clientId)
+        ),
+        sales: current.sales.filter(
+          (item) => String(item.clientId) !== String(clientId)
+        ),
+      }));
+
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao deletar cliente.";
+      setAppError(message);
+      throw new Error(message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function deleteAppointment(appointmentId) {
+    const confirmed = window.confirm("Deseja deletar este agendamento?");
+    if (!confirmed) return;
+
+    if (actionLoading) return;
+
+    setAppError("");
+    setActionLoading(true);
+
+    try {
+      if (repository.mode === "supabase") {
+        await repository.deleteAppointment(appointmentId);
+        const fresh = await repository.load();
+        await persist(fresh);
+        return true;
+      }
+
+      updateDb((current) => ({
+        ...current,
+        appointments: current.appointments.filter(
+          (item) => String(item.id) !== String(appointmentId)
+        ),
+      }));
+
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao deletar agendamento.";
+      setAppError(message);
+      throw new Error(message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function deleteSale(saleId) {
+    const confirmed = window.confirm("Deseja deletar esta venda?");
+    if (!confirmed) return;
+
+    if (actionLoading) return;
+
+    setAppError("");
+    setActionLoading(true);
+
+    try {
+      if (repository.mode === "supabase") {
+        await repository.deleteSale(saleId);
+        const fresh = await repository.load();
+        await persist(fresh);
+        return true;
+      }
+
+      updateDb((current) => ({
+        ...current,
+        sales: current.sales.filter(
+          (item) => String(item.id) !== String(saleId)
+        ),
+      }));
+
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao deletar venda.";
+      setAppError(message);
+      throw new Error(message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
   function renderCurrentScreen() {
     if (currentScreen === "Onboarding") {
       return (
@@ -647,16 +724,6 @@ export default function App() {
       );
     }
 
-    if (currentScreen === "Vendas") {
-      return (
-        <SalesScreen
-          db={db}
-          onNavigate={setCurrentScreen}
-          onCreateSale={() => setModal("sale")}
-        />
-      );
-    }
-
     if (currentScreen === "Clientes") {
       return (
         <ClientsScreen
@@ -677,6 +744,17 @@ export default function App() {
           onCreateAppointment={() => setModal("appointment")}
           onEditAppointment={openEditAppointment}
           onDeleteAppointment={deleteAppointment}
+        />
+      );
+    }
+
+    if (currentScreen === "Vendas") {
+      return (
+        <SalesScreen
+          db={db}
+          onNavigate={setCurrentScreen}
+          onCreateSale={() => setModal("sale")}
+          onDeleteSale={deleteSale}
         />
       );
     }
