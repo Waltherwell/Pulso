@@ -1,9 +1,6 @@
-import { EditClientModal } from "./modals/EditClientModal";
-import { EditAppointmentModal } from "./modals/EditAppointmentModal";
 import React from "react";
 import { supabase } from "./lib/supabase";
 import { PulsoMark } from "./components/brand/PulsoMark";
-import { RepositoryStatus } from "./components/ui/RepositoryStatus";
 
 import { usePulsoDatabase } from "./hooks/usePulsoDatabase";
 
@@ -19,6 +16,17 @@ import { NewClientModal } from "./modals/NewClientModal";
 import { NewAppointmentModal } from "./modals/NewAppointmentModal";
 import { NewSaleModal } from "./modals/NewSaleModal";
 import { EditProfileModal } from "./modals/EditProfileModal";
+import { EditClientModal } from "./modals/EditClientModal";
+import { EditAppointmentModal } from "./modals/EditAppointmentModal";
+
+function SanityChecks({ db }) {
+  const allGood =
+    Array.isArray(db?.clients) &&
+    Array.isArray(db?.appointments) &&
+    Array.isArray(db?.sales);
+
+  return <div className="hidden" data-sanity={allGood ? "ok" : "fail"} />;
+}
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = React.useState("Onboarding");
@@ -32,17 +40,31 @@ export default function App() {
   const [appError, setAppError] = React.useState("");
   const [actionLoading, setActionLoading] = React.useState(false);
 
-  const { db, isReady, syncMessage, repository, persist, resetDemo } =
-    usePulsoDatabase();
+  const [userMenuOpen, setUserMenuOpen] = React.useState(false);
+  const userMenuRef = React.useRef(null);
 
-  function SanityChecks({ db }) {
-    const allGood =
-      Array.isArray(db?.clients) &&
-      Array.isArray(db?.appointments) &&
-      Array.isArray(db?.sales);
+  const { db, isReady, repository, persist } = usePulsoDatabase();
 
-    return <div className="hidden" data-sanity={allGood ? "ok" : "fail"} />;
-  }
+  const userInitial = String(db?.user?.name || "U")
+    .trim()
+    .charAt(0)
+    .toUpperCase();
+
+  React.useEffect(() => {
+    function handleClickOutside(event) {
+      if (
+        userMenuRef.current &&
+        !userMenuRef.current.contains(event.target)
+      ) {
+        setUserMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   React.useEffect(() => {
     let mounted = true;
@@ -84,6 +106,9 @@ export default function App() {
         setAuthSuccess("");
         setAppError("");
         setModal(null);
+        setSelectedClient(null);
+        setSelectedAppointment(null);
+        setUserMenuOpen(false);
       }
     });
 
@@ -102,12 +127,14 @@ export default function App() {
     const confirmed = window.confirm("Deseja deslogar da PULSO?");
     if (!confirmed) return;
 
+    setUserMenuOpen(false);
     setAppError("");
     await supabase.auth.signOut();
   }
 
   function openActionModal(action) {
     setAppError("");
+    setUserMenuOpen(false);
 
     if (action === "new-client") {
       setModal("client");
@@ -197,19 +224,154 @@ export default function App() {
     return newBusiness.id;
   }
 
-  function openEditClient(client) {
-    setAppError("");
-    setSelectedClient(client);
-    setModal("edit-client");
+  async function ensureAccountSetup() {
+    await getOrCreateBusinessId();
   }
 
-  function openEditAppointment(appointment) {
+  async function handleSupabaseLogin(email, password) {
+    setAuthError("");
+    setAuthSuccess("");
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      setAuthError(error.message);
+      throw error;
+    }
+
+    await ensureAccountSetup();
+  }
+
+  async function handleSupabaseSignUp(form) {
+    setAuthError("");
+    setAuthSuccess("");
+
+    const { data, error } = await supabase.auth.signUp({
+      email: form.email,
+      password: form.password,
+      options: {
+        data: {
+          full_name: form.fullName,
+          business_name: form.businessName,
+        },
+      },
+    });
+
+    if (error) {
+      setAuthError(error.message);
+      throw error;
+    }
+
+    const hasSession = Boolean(data.session);
+    const userId = data.user?.id;
+
+    if (!userId) {
+      setAuthError("Não foi possível criar o usuário.");
+      return;
+    }
+
+    if (!hasSession) {
+      setAuthSuccess(
+        "Conta criada. Confira seu email para confirmar o cadastro e depois entre no app."
+      );
+      setCurrentScreen("Login");
+      return;
+    }
+
+    await ensureAccountSetup();
+    setAuthSuccess("Conta criada com sucesso.");
+    setCurrentScreen("Dashboard");
+  }
+
+  async function saveProfile(form) {
+    if (actionLoading) return;
+
     setAppError("");
-    setSelectedAppointment(appointment);
-    setModal("edit-appointment");
+    setActionLoading(true);
+
+    try {
+      if (repository.mode === "supabase") {
+        await repository.updateProfile(form);
+        const fresh = await repository.load();
+        await persist(fresh);
+        setModal(null);
+        return true;
+      }
+
+      updateDb((current) => ({
+        ...current,
+        user: {
+          ...current.user,
+          name: form.name,
+          email: form.email,
+          phone: form.phone,
+          businessName: form.businessName,
+        },
+      }));
+
+      setModal(null);
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao atualizar perfil.";
+      setAppError(message);
+      throw new Error(message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function createClient(form) {
+    if (actionLoading) return;
+
+    setAppError("");
+    setActionLoading(true);
+
+    try {
+      if (repository.mode === "supabase") {
+        const businessId = await getOrCreateBusinessId();
+        await repository.createClient(businessId, form);
+        const fresh = await repository.load();
+        await persist(fresh);
+        setModal(null);
+        setCurrentScreen("Clientes");
+        return true;
+      }
+
+      updateDb((current) => ({
+        ...current,
+        clients: [
+          {
+            id: Date.now(),
+            name: form.name,
+            phone: form.phone || "",
+            tag: form.tag || "Nova",
+            lastVisit: "ainda não atendido",
+            spent: 0,
+          },
+          ...current.clients,
+        ],
+      }));
+
+      setModal(null);
+      setCurrentScreen("Clientes");
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao criar cliente.";
+      setAppError(message);
+      throw new Error(message);
+    } finally {
+      setActionLoading(false);
+    }
   }
 
   async function updateClient(form) {
+    if (actionLoading) return;
+
     setAppError("");
     setActionLoading(true);
 
@@ -245,7 +407,101 @@ export default function App() {
     }
   }
 
+  async function deleteClient(clientId) {
+    const confirmed = window.confirm("Deseja deletar este cliente?");
+    if (!confirmed) return;
+
+    if (actionLoading) return;
+
+    setAppError("");
+    setActionLoading(true);
+
+    try {
+      if (repository.mode === "supabase") {
+        await repository.deleteClient(clientId);
+        const fresh = await repository.load();
+        await persist(fresh);
+        return true;
+      }
+
+      updateDb((current) => ({
+        ...current,
+        clients: current.clients.filter(
+          (item) => String(item.id) !== String(clientId)
+        ),
+        appointments: current.appointments.filter(
+          (item) => String(item.clientId) !== String(clientId)
+        ),
+        sales: current.sales.filter(
+          (item) => String(item.clientId) !== String(clientId)
+        ),
+      }));
+
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao deletar cliente.";
+      setAppError(message);
+      throw new Error(message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function createAppointment(form) {
+    if (actionLoading) return;
+
+    setAppError("");
+    setActionLoading(true);
+
+    try {
+      if (repository.mode === "supabase") {
+        const businessId = await getOrCreateBusinessId();
+        await repository.createAppointment(businessId, form);
+        const fresh = await repository.load();
+        await persist(fresh);
+        setModal(null);
+        setCurrentScreen("Agenda");
+        return true;
+      }
+
+      const client = db.clients.find(
+        (item) => String(item.id) === String(form.clientId)
+      );
+
+      updateDb((current) => ({
+        ...current,
+        appointments: [
+          {
+            id: Date.now(),
+            clientId: form.clientId,
+            name: client?.name || "Cliente",
+            service: form.service,
+            date: form.date,
+            time: form.time,
+            value: Number(form.value || 0),
+            status: form.status,
+          },
+          ...current.appointments,
+        ],
+      }));
+
+      setModal(null);
+      setCurrentScreen("Agenda");
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao criar agendamento.";
+      setAppError(message);
+      throw new Error(message);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
   async function updateAppointment(form) {
+    if (actionLoading) return;
+
     setAppError("");
     setActionLoading(true);
 
@@ -329,199 +585,6 @@ export default function App() {
     }
   }
 
-  async function ensureAccountSetup() {
-    await getOrCreateBusinessId();
-  }
-
-  async function handleSupabaseLogin(email, password) {
-    setAuthError("");
-    setAuthSuccess("");
-
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (error) {
-      setAuthError(error.message);
-      throw error;
-    }
-
-    await ensureAccountSetup();
-  }
-
-  async function handleSupabaseSignUp(form) {
-    if (actionLoading) return;
-    setAuthError("");
-    setAuthSuccess("");
-
-    const { data, error } = await supabase.auth.signUp({
-      email: form.email,
-      password: form.password,
-      options: {
-        data: {
-          full_name: form.fullName,
-          business_name: form.businessName,
-        },
-      },
-    });
-
-    if (error) {
-      setAuthError(error.message);
-      throw error;
-    }
-
-    const hasSession = Boolean(data.session);
-    const userId = data.user?.id;
-
-    if (!userId) {
-      setAuthError("Não foi possível criar o usuário.");
-      return;
-    }
-
-    if (!hasSession) {
-      setAuthSuccess(
-        "Conta criada. Confira seu email para confirmar o cadastro e depois entre no app."
-      );
-      setCurrentScreen("Login");
-      return;
-    }
-
-    await ensureAccountSetup();
-    setAuthSuccess("Conta criada com sucesso.");
-    setCurrentScreen("Dashboard");
-  }
-
-  async function saveProfile(form) {
-    setAppError("");
-    setActionLoading(true);
-
-    try {
-      if (repository.mode === "supabase") {
-        await repository.updateProfile(form);
-        const fresh = await repository.load();
-        await persist(fresh);
-        setModal(null);
-        return true;
-      }
-
-      updateDb((current) => ({
-        ...current,
-        user: {
-          ...current.user,
-          name: form.name,
-          email: form.email,
-          phone: form.phone,
-          businessName: form.businessName,
-        },
-      }));
-
-      setModal(null);
-      return true;
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Erro ao atualizar perfil.";
-      setAppError(message);
-      throw new Error(message);
-    } finally {
-      setActionLoading(false);
-    }
-  }
-
-  async function createClient(form) {
-    if (actionLoading) return;
-    setAppError("");
-    setActionLoading(true);
-
-    try {
-      if (repository.mode === "supabase") {
-        const businessId = await getOrCreateBusinessId();
-        await repository.createClient(businessId, form);
-        const fresh = await repository.load();
-        await persist(fresh);
-        setModal(null);
-        setCurrentScreen("Clientes");
-        return true;
-      }
-
-      updateDb((current) => ({
-        ...current,
-        clients: [
-          {
-            id: Date.now(),
-            name: form.name,
-            phone: form.phone || "",
-            tag: form.tag || "Nova",
-            lastVisit: "ainda não atendido",
-            spent: 0,
-          },
-          ...current.clients,
-        ],
-      }));
-
-      setModal(null);
-      setCurrentScreen("Clientes");
-      return true;
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Erro ao criar cliente.";
-      setAppError(message);
-      throw new Error(message);
-    } finally {
-      setActionLoading(false);
-    }
-  }
-
-  async function createAppointment(form) {
-    if (actionLoading) return;
-    setAppError("");
-    setActionLoading(true);
-
-    try {
-      if (repository.mode === "supabase") {
-        const businessId = await getOrCreateBusinessId();
-        await repository.createAppointment(businessId, form);
-        const fresh = await repository.load();
-        await persist(fresh);
-        setModal(null);
-        setCurrentScreen("Agenda");
-        return true;
-      }
-
-      const client = db.clients.find(
-        (item) => String(item.id) === String(form.clientId)
-      );
-
-      updateDb((current) => ({
-        ...current,
-        appointments: [
-          {
-            id: Date.now(),
-            clientId: form.clientId,
-            name: client?.name || "Cliente",
-            service: form.service,
-            date: form.date,
-            time: form.time,
-            value: Number(form.value || 0),
-            status: form.status,
-          },
-          ...current.appointments,
-        ],
-      }));
-
-      setModal(null);
-      setCurrentScreen("Agenda");
-      return true;
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Erro ao criar agendamento.";
-      setAppError(message);
-      throw new Error(message);
-    } finally {
-      setActionLoading(false);
-    }
-  }
-
   async function createSale(form) {
     if (actionLoading) return;
 
@@ -582,82 +645,6 @@ export default function App() {
     }
   }
 
-  async function deleteClient(clientId) {
-    const confirmed = window.confirm("Deseja deletar este cliente?");
-    if (!confirmed) return;
-
-    if (actionLoading) return;
-
-    setAppError("");
-    setActionLoading(true);
-
-    try {
-      if (repository.mode === "supabase") {
-        await repository.deleteClient(clientId);
-        const fresh = await repository.load();
-        await persist(fresh);
-        return true;
-      }
-
-      updateDb((current) => ({
-        ...current,
-        clients: current.clients.filter(
-          (item) => String(item.id) !== String(clientId)
-        ),
-        appointments: current.appointments.filter(
-          (item) => String(item.clientId) !== String(clientId)
-        ),
-        sales: current.sales.filter(
-          (item) => String(item.clientId) !== String(clientId)
-        ),
-      }));
-
-      return true;
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Erro ao deletar cliente.";
-      setAppError(message);
-      throw new Error(message);
-    } finally {
-      setActionLoading(false);
-    }
-  }
-
-  async function deleteAppointment(appointmentId) {
-    const confirmed = window.confirm("Deseja deletar este agendamento?");
-    if (!confirmed) return;
-
-    if (actionLoading) return;
-
-    setAppError("");
-    setActionLoading(true);
-
-    try {
-      if (repository.mode === "supabase") {
-        await repository.deleteAppointment(appointmentId);
-        const fresh = await repository.load();
-        await persist(fresh);
-        return true;
-      }
-
-      updateDb((current) => ({
-        ...current,
-        appointments: current.appointments.filter(
-          (item) => String(item.id) !== String(appointmentId)
-        ),
-      }));
-
-      return true;
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Erro ao deletar agendamento.";
-      setAppError(message);
-      throw new Error(message);
-    } finally {
-      setActionLoading(false);
-    }
-  }
-
   async function deleteSale(saleId) {
     const confirmed = window.confirm("Deseja deletar esta venda?");
     if (!confirmed) return;
@@ -691,6 +678,18 @@ export default function App() {
     } finally {
       setActionLoading(false);
     }
+  }
+
+  function openEditClient(client) {
+    setAppError("");
+    setSelectedClient(client);
+    setModal("edit-client");
+  }
+
+  function openEditAppointment(appointment) {
+    setAppError("");
+    setSelectedAppointment(appointment);
+    setModal("edit-appointment");
   }
 
   function renderCurrentScreen() {
@@ -777,14 +776,14 @@ export default function App() {
   if (!isReady) {
     return (
       <div className="min-h-screen bg-[#F4EFE8] p-6 flex items-center justify-center">
-        <div className="rounded-[30px] bg-white shadow-xl border border-black/5 px-8 py-10 text-center max-w-sm w-full">
+        <div className="rounded-[30px] bg-white shadow-xl border border-[#0F3D3E]/10 px-8 py-10 text-center max-w-sm w-full">
           <div className="flex items-center justify-center mb-4">
             <PulsoMark />
           </div>
-          <h2 className="text-xl font-semibold text-[#1E1E1E]">
+          <h2 className="text-xl font-semibold text-[#0F3D3E]">
             Inicializando PULSO
           </h2>
-          <p className="text-sm text-[#1E1E1E]/60 mt-2">
+          <p className="text-sm text-[#0F3D3E]/65 mt-2">
             Preparando a base do projeto.
           </p>
         </div>
@@ -793,61 +792,86 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F4EFE8] p-6">
+    <div className="min-h-screen bg-[#F4EFE8] px-3 py-3 sm:px-6 sm:py-6">
       <SanityChecks db={db} />
 
-      <div className="max-w-6xl mx-auto">
-        <div className="flex items-start justify-between gap-3 mb-4">
-          <div className="flex-1">
-            <RepositoryStatus
-              repository={repository}
-              syncMessage={syncMessage}
-              onReset={resetDemo}
-            />
+      <div className="max-w-7xl mx-auto">
+        <div className="flex items-center justify-between gap-3 mb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-white border border-[#0F3D3E]/10 shadow-sm flex items-center justify-center">
+              <PulsoMark />
+            </div>
+
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.22em] text-[#0F3D3E]/55">
+                PULSO
+              </p>
+              <p className="text-sm font-medium text-[#0F3D3E]/75">
+                Gestão clara e contínua
+              </p>
+            </div>
           </div>
 
-          {isAuthenticatedArea ? (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setModal("profile")}
-                className="rounded-2xl bg-white border border-[#0F3D3E]/10 px-4 py-3 text-sm font-semibold text-[#0F3D3E] shadow-sm"
-              >
-                Perfil
-              </button>
+          <div className="relative" ref={userMenuRef}>
+            <button
+              type="button"
+              onClick={() => setUserMenuOpen((value) => !value)}
+              className="w-12 h-12 rounded-2xl bg-[#0F3D3E] text-white text-sm font-semibold shadow-sm"
+            >
+              {userInitial}
+            </button>
 
-              <button
-                onClick={handleLogout}
-                className="rounded-2xl bg-white border border-[#0F3D3E]/10 px-4 py-3 text-sm font-semibold text-[#0F3D3E] shadow-sm"
-              >
-                Deslogar
-              </button>
-            </div>
-          ) : null}
+            {userMenuOpen ? (
+              <div className="absolute right-0 top-14 w-44 rounded-2xl border border-[#0F3D3E]/10 bg-white shadow-xl overflow-hidden z-50">
+                {isAuthenticatedArea ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setModal("profile");
+                        setUserMenuOpen(false);
+                      }}
+                      className="w-full px-4 py-3 text-left text-sm font-medium text-[#0F3D3E] hover:bg-[#F4EFE8]"
+                    >
+                      Perfil
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="w-full px-4 py-3 text-left text-sm font-medium text-[#0F3D3E] hover:bg-[#F4EFE8]"
+                    >
+                      Deslogar
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentScreen("Login");
+                      setUserMenuOpen(false);
+                    }}
+                    className="w-full px-4 py-3 text-left text-sm font-medium text-[#0F3D3E] hover:bg-[#F4EFE8]"
+                  >
+                    Login
+                  </button>
+                )}
+              </div>
+            ) : null}
+          </div>
         </div>
 
         {appError ? (
-          <div className="mb-4 rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          <div className="mb-4 rounded-2xl bg-white border border-[#0F3D3E]/10 px-4 py-3 text-sm text-[#0F3D3E]">
             {appError}
           </div>
         ) : null}
 
         {actionLoading ? (
-          <div className="mb-4 rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-700">
+          <div className="mb-4 rounded-2xl bg-[#0F3D3E] px-4 py-3 text-sm text-white">
             Processando ação...
           </div>
         ) : null}
-
-        <div className="mb-6 text-center">
-          <p className="text-xs uppercase tracking-[0.22em] text-[#0F3D3E]/55">
-            Protótipo navegável pronto para evoluir
-          </p>
-          <h1 className="text-3xl font-semibold text-[#1E1E1E] mt-3">
-            PULSO
-          </h1>
-          <p className="text-sm text-[#1E1E1E]/60 mt-2">
-            Base limpa, preparada para seguir no VS Code e depois subir para o GitHub.
-          </p>
-        </div>
 
         {renderCurrentScreen()}
       </div>
@@ -905,8 +929,6 @@ export default function App() {
           onSave={createSale}
         />
       ) : null}
-
-
     </div>
   );
 }

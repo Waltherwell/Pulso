@@ -1,18 +1,29 @@
-export function Modal({ title, children, onClose }) {
+import React from "react";
+
+export function Modal({ title, onClose, children }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-[28px] bg-white shadow-2xl overflow-hidden border border-black/5">
-        <div className="px-5 py-4 border-b border-[#0F3D3E]/8 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-[#1E1E1E]">{title}</h3>
+    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-end sm:items-center sm:justify-center">
+      <div className="w-full sm:max-w-md bg-white rounded-t-[28px] sm:rounded-[28px] shadow-2xl p-5 sm:p-6 animate-[fadeIn_.18s_ease]">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-[#0F3D3E]/50">
+              PULSO
+            </p>
+            <h3 className="text-lg font-semibold text-[#1E1E1E] mt-1">
+              {title}
+            </h3>
+          </div>
+
           <button
+            type="button"
             onClick={onClose}
-            className="w-9 h-9 rounded-2xl bg-[#F4EFE8] text-[#0F3D3E] font-semibold"
+            className="w-10 h-10 rounded-2xl bg-[#F4EFE8] text-[#0F3D3E] text-lg font-semibold"
           >
             ×
           </button>
         </div>
 
-        <div className="p-5">{children}</div>
+        {children}
       </div>
     </div>
   );
