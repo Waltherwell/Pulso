@@ -4,6 +4,7 @@ import { PulsoMark } from "../components/brand/PulsoMark";
 import { Field } from "../components/ui/Field";
 import { Input } from "../components/ui/Input";
 
+
 export function SignUpScreen({ onCreateAccount, authError, authSuccess, onGoToLogin }) {
   const [form, setForm] = React.useState({
     fullName: "",

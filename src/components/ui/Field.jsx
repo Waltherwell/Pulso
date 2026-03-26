@@ -1,10 +1,10 @@
 export function Field({ label, children }) {
   return (
-    <div>
-      <label className="text-xs font-medium uppercase tracking-[0.16em] text-[#0F3D3E]/55">
+    <label className="block">
+      <span className="block text-[11px] uppercase tracking-[0.16em] text-[#0F3D3E]/55 mb-2">
         {label}
-      </label>
-      <div className="mt-2">{children}</div>
-    </div>
+      </span>
+      {children}
+    </label>
   );
 }
