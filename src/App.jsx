@@ -61,6 +61,7 @@ export default function App() {
     }
 
     document.addEventListener("mousedown", handleClickOutside);
+
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
@@ -246,6 +247,8 @@ export default function App() {
   }
 
   async function handleSupabaseSignUp(form) {
+    if (actionLoading) return;
+
     setAuthError("");
     setAuthSuccess("");
 
@@ -524,15 +527,15 @@ export default function App() {
         appointments: current.appointments.map((item) =>
           String(item.id) === String(selectedAppointment.id)
             ? {
-              ...item,
-              clientId: form.clientId,
-              name: client?.name || "Cliente",
-              service: form.service,
-              date: form.date,
-              time: form.time,
-              value: Number(form.value || 0),
-              status: form.status,
-            }
+                ...item,
+                clientId: form.clientId,
+                name: client?.name || "Cliente",
+                service: form.service,
+                date: form.date,
+                time: form.time,
+                value: Number(form.value || 0),
+                status: form.status,
+              }
             : item
         ),
       }));
@@ -776,7 +779,7 @@ export default function App() {
   if (!isReady) {
     return (
       <div className="min-h-screen bg-[#F4EFE8] p-6 flex items-center justify-center">
-        <div className="rounded-[30px] bg-white shadow-xl border border-[#0F3D3E]/10 px-8 py-10 text-center max-w-sm w-full">
+        <div className="rounded-[30px] bg-white border border-[#0F3D3E]/10 px-8 py-10 text-center max-w-sm w-full shadow-[0_18px_60px_rgba(15,61,62,0.12)]">
           <div className="flex items-center justify-center mb-4">
             <PulsoMark />
           </div>
@@ -807,7 +810,7 @@ export default function App() {
                 PULSO
               </p>
               <p className="text-sm font-medium text-[#0F3D3E]/75">
-                Gestão clara e contínua
+                Clientes, agenda e vendas
               </p>
             </div>
           </div>

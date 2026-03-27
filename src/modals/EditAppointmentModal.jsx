@@ -4,6 +4,10 @@ import { Field } from "../components/ui/Field";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 
+function getToday() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export function EditAppointmentModal({
   appointment,
   clients,
@@ -13,6 +17,7 @@ export function EditAppointmentModal({
   const [form, setForm] = React.useState({
     clientId: String(appointment?.clientId || ""),
     service: appointment?.service || "",
+    date: appointment?.date || getToday(),
     time: appointment?.time || "09:00",
     value: String(appointment?.value || 0),
     status: appointment?.status || "Pendente",
@@ -31,6 +36,11 @@ export function EditAppointmentModal({
 
     if (!form.service.trim()) {
       setLocalError("Informe o serviço.");
+      return;
+    }
+
+    if (!form.date) {
+      setLocalError("Informe a data.");
       return;
     }
 
@@ -72,14 +82,24 @@ export function EditAppointmentModal({
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Hora">
+          <Field label="Data">
             <Input
-              value={form.time}
-              onChange={(e) => setForm({ ...form, time: e.target.value })}
-              placeholder="09:00"
+              type="date"
+              value={form.date}
+              onChange={(e) => setForm({ ...form, date: e.target.value })}
             />
           </Field>
 
+          <Field label="Hora">
+            <Input
+              type="time"
+              value={form.time}
+              onChange={(e) => setForm({ ...form, time: e.target.value })}
+            />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
           <Field label="Valor">
             <Input
               value={form.value}
@@ -87,23 +107,23 @@ export function EditAppointmentModal({
               placeholder="0"
             />
           </Field>
+
+          <Field label="Status">
+            <Select
+              value={form.status}
+              onChange={(e) => setForm({ ...form, status: e.target.value })}
+            >
+              <option>Pendente</option>
+              <option>Confirmado</option>
+              <option>Em breve</option>
+              <option>Concluído</option>
+              <option>Cancelado</option>
+            </Select>
+          </Field>
         </div>
 
-        <Field label="Status">
-          <Select
-            value={form.status}
-            onChange={(e) => setForm({ ...form, status: e.target.value })}
-          >
-            <option>Pendente</option>
-            <option>Confirmado</option>
-            <option>Em breve</option>
-            <option>Concluído</option>
-            <option>Cancelado</option>
-          </Select>
-        </Field>
-
         {localError ? (
-          <div className="rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          <div className="rounded-2xl bg-[#F4EFE8] border border-[#0F3D3E]/10 px-4 py-3 text-sm text-[#0F3D3E]">
             {localError}
           </div>
         ) : null}
@@ -112,7 +132,7 @@ export function EditAppointmentModal({
           type="button"
           onClick={handleSave}
           disabled={loading}
-          className="w-full rounded-2xl bg-[#0F3D3E] text-white py-3.5 text-sm font-semibold disabled:opacity-60"
+          className="w-full rounded-2xl bg-[#0F3D3E] text-white py-3.5 text-sm font-semibold shadow-sm disabled:opacity-60"
         >
           {loading ? "Salvando..." : "Salvar alterações"}
         </button>

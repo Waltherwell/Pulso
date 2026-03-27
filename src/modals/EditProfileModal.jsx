@@ -41,7 +41,7 @@ export function EditProfileModal({ user, onClose, onSave }) {
   }
 
   return (
-    <Modal title="Perfil e dados do negócio" onClose={onClose}>
+    <Modal title="Perfil" onClose={onClose}>
       <div className="space-y-4">
         <Field label="Seu nome">
           <Input
@@ -51,8 +51,12 @@ export function EditProfileModal({ user, onClose, onSave }) {
           />
         </Field>
 
-        <Field label="Email de login">
-          <Input value={form.email} disabled className="opacity-70 cursor-not-allowed" />
+        <Field label="Email de acesso">
+          <Input
+            value={form.email}
+            disabled
+            className="opacity-75 cursor-not-allowed"
+          />
         </Field>
 
         <Field label="Telefone">
@@ -74,7 +78,7 @@ export function EditProfileModal({ user, onClose, onSave }) {
         </Field>
 
         {localError ? (
-          <div className="rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          <div className="rounded-2xl bg-[#F4EFE8] border border-[#0F3D3E]/10 px-4 py-3 text-sm text-[#0F3D3E]">
             {localError}
           </div>
         ) : null}
@@ -83,7 +87,7 @@ export function EditProfileModal({ user, onClose, onSave }) {
           type="button"
           onClick={handleSave}
           disabled={loading}
-          className="w-full rounded-2xl bg-[#0F3D3E] text-white py-3.5 text-sm font-semibold disabled:opacity-60"
+          className="w-full rounded-2xl bg-[#0F3D3E] text-white py-3.5 text-sm font-semibold shadow-sm disabled:opacity-60"
         >
           {loading ? "Salvando..." : "Salvar alterações"}
         </button>
